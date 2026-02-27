@@ -1,199 +1,253 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using MySql.Data.MySqlClient;
+using UserListViewer.Data;
+using UserListViewer.Models;
 
-namespace ders2
+namespace UserListViewer
 {
+    /// <summary>
+    /// Main form for displaying and navigating user information.
+    /// </summary>
     public partial class Form1 : Form
     {
-        public Form1()
+        private readonly IUserRepository _userRepository;
+        private List<UserInfo> _users = new();
+        private int _currentIndex = 0;
+        private BindingSource _bindingSource = new();
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Form1"/> class.
+        /// </summary>
+        /// <param name="userRepository">The user repository for data access.</param>
+        public Form1(IUserRepository userRepository)
         {
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
             InitializeComponent();
         }
 
-        MySqlConnection con = new MySqlConnection("user=root; password=; port=3306; server=localhost; database=SQLDataDemo");
-        MySqlCommand cmd;
-        DataTable dt;
-        CurrencyManager cm;
-        MySqlDataReader mydr;
-        
-
-        
-             
-  
- 
- 
-
-private void label1_Click(object sender, EventArgs e)
+        /// <summary>
+        /// Handles the form load event and initializes data.
+        /// </summary>
+        private async void Form1_Load(object sender, EventArgs e)
         {
-
-        }
-
-        private void tabPage2_Click(object sender, EventArgs e)
-        {
-           
-
-        }
-
-        private void Form1_Load(object sender, EventArgs e)
-        {
-            con.Open();
-
-            text_verisi();
-
-            
-
-            con.Close();
-            
-
-        }
-
-        public void text_verisi()
-        {
-
-
-   cmd = new MySqlCommand("Select * from Userinfo", con);
- 
-            //datatable olstr
-            dt = new DataTable();
-
-            //execute reader
-            dt.Load(cmd.ExecuteReader());
-            //veriler datagridview girilecekü
-            dataGridView1.DataSource = dt;
-            cm = (CurrencyManager)BindingContext[dt];
-
-            //cm sınıfını cagirip dt ile eslestiricegiz
-            textBox2.Text = "" + (cm.Position + 1) + "/" + cm.Count;
-
-             textBox3.DataBindings.Add("Text", dt, "Name");
-            textBox4.DataBindings.Add("Text", dt, "Surname");
-            textBox5.DataBindings.Add("Text", dt, "Email");
-            textBox6.DataBindings.Add("Text", dt, "ID");
-
-                
-            MySqlDataReader reader = cmd.ExecuteReader();
-            while (reader.Read())
+            try
             {
-                comboBox1.Items.Add(reader.GetString("ID"));
+                await LoadUsersAsync();
             }
-
-
-
-
-
+            catch (Exception ex)
+            {
+                ShowError("Failed to load users", ex);
+            }
         }
 
-        public void comboBox1_TextChanged()
+        /// <summary>
+        /// Loads all users from the database asynchronously.
+        /// </summary>
+        private async Task LoadUsersAsync()
         {
+            try
+            {
+                // Show loading indicator
+                Cursor = Cursors.WaitCursor;
 
+                // Test connection first
+                if (!await _userRepository.TestConnectionAsync())
+                {
+                    MessageBox.Show(
+                        "Unable to connect to the database. Please check your connection settings.",
+                        "Connection Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return;
+                }
 
+                // Load users
+                _users = await _userRepository.GetAllUsersAsync();
+
+                if (_users.Count == 0)
+                {
+                    MessageBox.Show(
+                        "No users found in the database.",
+                        "Information",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                    return;
+                }
+
+                // Setup data binding
+                SetupDataBinding();
+                
+                // Navigate to first record
+                NavigateToRecord(0);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
         }
 
-
-        private void button3_Click(object sender, EventArgs e)
+        /// <summary>
+        /// Sets up data binding for the form controls.
+        /// </summary>
+        private void SetupDataBinding()
         {
+            // Clear existing bindings
+            textBox3.DataBindings.Clear();
+            textBox4.DataBindings.Clear();
+            textBox5.DataBindings.Clear();
+            textBox6.DataBindings.Clear();
+            comboBox1.Items.Clear();
 
+            // Setup binding source
+            _bindingSource.DataSource = _users;
+
+            // Bind controls to data source
+            textBox3.DataBindings.Add("Text", _bindingSource, nameof(UserInfo.Name), false, DataSourceUpdateMode.Never);
+            textBox4.DataBindings.Add("Text", _bindingSource, nameof(UserInfo.Surname), false, DataSourceUpdateMode.Never);
+            textBox5.DataBindings.Add("Text", _bindingSource, nameof(UserInfo.Email), false, DataSourceUpdateMode.Never);
+            textBox6.DataBindings.Add("Text", _bindingSource, nameof(UserInfo.ID), false, DataSourceUpdateMode.Never);
+
+            // Setup DataGridView
+            dataGridView1.DataSource = _bindingSource;
+
+            // Populate ComboBox
+            foreach (var user in _users)
+            {
+                comboBox1.Items.Add(user.ID);
+            }
         }
 
-        private void label2_Click(object sender, EventArgs e)
+        /// <summary>
+        /// Navigates to a specific record by index.
+        /// </summary>
+        /// <param name="index">The zero-based index of the record.</param>
+        private void NavigateToRecord(int index)
         {
+            if (_users.Count == 0) return;
 
+            // Ensure index is within bounds
+            _currentIndex = Math.Max(0, Math.Min(index, _users.Count - 1));
+            
+            // Update binding source position
+            _bindingSource.Position = _currentIndex;
+
+            // Update position display
+            UpdatePositionDisplay();
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        /// <summary>
+        /// Updates the position display textbox.
+        /// </summary>
+        private void UpdatePositionDisplay()
         {
-            cm.Position--;
-            textBox2.Text = "" + (cm.Position + 1) + "/" + cm.Count;
-
+            if (_users.Count > 0)
+            {
+                textBox2.Text = $"{_currentIndex + 1}/{_users.Count}";
+            }
+            else
+            {
+                textBox2.Text = "0/0";
+            }
         }
 
+        /// <summary>
+        /// Shows an error message to the user.
+        /// </summary>
+        /// <param name="message">The error message.</param>
+        /// <param name="exception">The exception that occurred.</param>
+        private void ShowError(string message, Exception exception)
+        {
+            MessageBox.Show(
+                $"{message}\n\nDetails: {exception.Message}",
+                "Error",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+
+        #region Navigation Button Handlers
+
+        /// <summary>
+        /// Navigates to the first record.
+        /// </summary>
         private void button4_Click(object sender, EventArgs e)
         {
-            cm.Position=0;
-            textBox2.Text = "" + (cm.Position + 1) + "/" + cm.Count;
-
+            NavigateToRecord(0);
         }
 
+        /// <summary>
+        /// Navigates to the previous record.
+        /// </summary>
+        private void button1_Click(object sender, EventArgs e)
+        {
+            NavigateToRecord(_currentIndex - 1);
+        }
+
+        /// <summary>
+        /// Navigates to the next record.
+        /// </summary>
         private void button2_Click(object sender, EventArgs e)
         {
-            cm.Position++;
-            textBox2.Text = "" + (cm.Position + 1) + "/" + cm.Count;
-
-
+            NavigateToRecord(_currentIndex + 1);
         }
 
-        private void button3_Click_1(object sender, EventArgs e)
+        /// <summary>
+        /// Navigates to the last record.
+        /// </summary>
+        private void button3_Click(object sender, EventArgs e)
         {
-            cm.Position = cm.Count;
-            textBox2.Text = "" + (cm.Position + 1) + "/" + cm.Count;
-
+            NavigateToRecord(_users.Count - 1);
         }
 
-        private void pictureBox1_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void tabPage3_Click(object sender, EventArgs e)
-        {
-           
-        }
-
-        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            cm.Position++;
-           
-        }
-
-        private void label6_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void textBox3_TextChanged(object sender, EventArgs e)
-        {
-            
-
-
-        }
-
+        /// <summary>
+        /// Navigates to the previous record (alternative button).
+        /// </summary>
         private void button6_Click(object sender, EventArgs e)
         {
-              cm.Position--;
-         }
+            NavigateToRecord(_currentIndex - 1);
+        }
 
+        /// <summary>
+        /// Navigates to the next record (alternative button).
+        /// </summary>
         private void button5_Click(object sender, EventArgs e)
         {
- 
-            cm.Position++;
+            NavigateToRecord(_currentIndex + 1);
         }
 
-        private void tabPage1_Click(object sender, EventArgs e)
+        #endregion
+
+        #region ComboBox Handler
+
+        /// <summary>
+        /// Handles the ComboBox selection change event.
+        /// </summary>
+        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
-
+            if (comboBox1.SelectedItem != null && int.TryParse(comboBox1.SelectedItem.ToString(), out int selectedId))
+            {
+                var index = _users.FindIndex(u => u.ID == selectedId);
+                if (index >= 0)
+                {
+                    NavigateToRecord(index);
+                }
+            }
         }
 
-        private void textBox9_TextChanged(object sender, EventArgs e)
-        {
-            //name
-        }
+        #endregion
 
-        private void textBox8_TextChanged(object sender, EventArgs e)
-        {
-            //surname
-        }
+        #region Unused Event Handlers (Kept for Designer compatibility)
 
-        private void textBox7_TextChanged(object sender, EventArgs e)
-        {
-            //email
-        }
+        private void label1_Click(object sender, EventArgs e) { }
+        private void label2_Click(object sender, EventArgs e) { }
+        private void label6_Click(object sender, EventArgs e) { }
+        private void tabPage1_Click(object sender, EventArgs e) { }
+        private void tabPage2_Click(object sender, EventArgs e) { }
+        private void tabPage3_Click(object sender, EventArgs e) { }
+        private void pictureBox1_Click(object sender, EventArgs e) { }
+        private void textBox3_TextChanged(object sender, EventArgs e) { }
+        private void textBox7_TextChanged(object sender, EventArgs e) { }
+        private void textBox8_TextChanged(object sender, EventArgs e) { }
+        private void textBox9_TextChanged(object sender, EventArgs e) { }
+
+        #endregion
     }
 }
